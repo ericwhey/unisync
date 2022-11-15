@@ -6,6 +6,8 @@ use std::fs;
 use std::fs::File;
 use std::io::{Write, BufReader, BufRead};
 use std::path::{Path, self, PathBuf};
+use std::sync::mpsc::{self, Sender};
+use std::thread;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use chrono::{Utc, NaiveDateTime, Local};
 use chrono::prelude::DateTime;
@@ -24,12 +26,12 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn clone(&self) -> Entry {
+    pub fn clone(&self) -> Self {
         return Entry {
             status: String::from(self.status.to_string()),
-            timestamp: self.timestamp,
-            size: self.size,
-            perms: self.perms,
+            timestamp: self.timestamp.clone(),
+            size: self.size.clone(),
+            perms: self.perms.clone(),
             hash: String::from(self.hash.to_string()),
             path: String::from(self.path.to_string())
         }
@@ -100,8 +102,8 @@ impl Entry {
     }
 }
 
-fn scan(root: String) -> LinkedList<Entry> {
-    let mut list = LinkedList::new();
+fn scan(root: String, tx:Sender<Entry>) {
+    //let mut list = LinkedList::new();
     //let root = ".".to_owned();
     let root_full = root.to_owned() + "/";
     let last_path = root_full.to_owned() + ".unisync/last.txt";
@@ -140,7 +142,7 @@ fn scan(root: String) -> LinkedList<Entry> {
                 //println!("Got LESS {} {}",last_entry.path,next_entry.path);
                 last_entry.status = String::from("DELETED");
                 writeln!(output,"{}",last_entry.to_string());
-                list.push_back(last_entry.clone());
+                tx.send(last_entry.clone());
                 let mut line = String::new();
                 let bytes = reader.read_line(&mut line).unwrap();
                 if bytes == 0 {
@@ -156,7 +158,7 @@ fn scan(root: String) -> LinkedList<Entry> {
                 let path = dir_entry.path();
                 next_entry.hash_path(path);
                 writeln!(output,"{}",next_entry.to_string());
-                list.push_back(next_entry.clone());
+                tx.send(next_entry.clone());
             } else if compare == Ordering::Equal {
                 if next_entry.timestamp == last_entry.timestamp && next_entry.size == last_entry.size {
                     next_entry.hash = String::from(last_entry.hash.as_str());
@@ -166,7 +168,7 @@ fn scan(root: String) -> LinkedList<Entry> {
                 }
                 //print!(".");
                 writeln!(output,"{}",next_entry.to_string());
-                list.push_back(next_entry.clone());
+                tx.send(next_entry.clone());
                 let mut line = String::new();
                 let bytes = reader.read_line(&mut line).unwrap();
                 if bytes == 0 {
@@ -174,10 +176,10 @@ fn scan(root: String) -> LinkedList<Entry> {
                 } else {
                     last_entry = Entry::new(line);
                 }
-            } else if (file_done) {
+            } else if file_done {
                 next_entry.hash_path(dir_entry.path());
                 writeln!(output,"{}",next_entry.to_string());
-                list.push_back(next_entry.clone());
+                tx.send(next_entry.clone());
             }
             
             //println!("Next line is {}", new_entry.to_string());
@@ -187,7 +189,7 @@ fn scan(root: String) -> LinkedList<Entry> {
         while !file_done {
             last_entry.status = String::from("DELETED");
             writeln!(output,"{}",last_entry.to_string());
-            list.push_back(last_entry.clone());
+            tx.send(last_entry.clone());
             let mut line = String::new();
             let bytes = reader.read_line(&mut line).unwrap();
             if bytes == 0 {
@@ -213,21 +215,29 @@ fn scan(root: String) -> LinkedList<Entry> {
             next_entry.hash_path(entry.path());
             //println!("Next line is {}", new_entry.to_string());
             writeln!(output,"{}",next_entry.to_string());
-            list.push_back(next_entry.clone());
+            tx.send(next_entry.clone());
         }
 
         fs::rename(next_path, last_path);
     }
-
-    return list;
 
 }
 
 fn main() {
     let root1 = "./test";
     let root2 = "./test2";
-    let mut list1 = scan(String::from(root1));
-    let mut list2 = scan(String::from(root2));
+
+    let (tx1, rx1) = mpsc::channel();
+    let (tx2, rx2) = mpsc::channel();
+
+    thread::spawn(move || {
+        scan(String::from(root1),tx1);
+    });
+
+    thread::spawn(move || {
+        scan(String::from(root2), tx2);
+    });
+    
 
     /*for entry in list1.iter_mut() {
         println!("{}",entry.to_string());
@@ -236,50 +246,55 @@ fn main() {
         println!("{}",entry.to_string());
     }*/
 
-    let mut iter1 = list1.iter();
-    let mut iter2 = list2.iter();
+    let mut iter1 = rx1.iter();
+    let mut iter2 = rx2.iter();
 
     let mut entry1 = iter1.next();
     let mut entry2 = iter2.next();
-    while entry1.is_some() && entry2.is_some()  {
-        let compare = entry1.unwrap().path.cmp(&entry2.unwrap().path);
+
+    println!("Starting");
+
+    while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2)   {
+        let compare = entry1u.path.cmp(&entry2u.path);
         if compare == Ordering::Equal {
-            if entry1.unwrap().status == "DELETED" && entry2.unwrap().status != "DELETED" {
-                println!("DELETED {}", entry1.unwrap().path);
-            } else if entry2.unwrap().status == "DELETED" && entry1.unwrap().status != "DELETED" {
-                println!("DELETED {}", entry2.unwrap().path);
-            } else if entry1.unwrap().size != entry2.unwrap().size {
-                println!("CHANGED {}", entry1.unwrap().path);
-            } else if entry1.unwrap().hash != entry2.unwrap().hash {
-                println!("CHANGED {}", entry1.unwrap().path);
-            } else if entry1.unwrap().timestamp != entry2.unwrap().timestamp {
-                print!("TIME {}\t", entry1.unwrap().path);
-                let d = UNIX_EPOCH + Duration::from_secs(entry1.unwrap().timestamp);
+            if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
+                println!("DELETED {}", entry1u.path);
+            } else if entry2u.status == "DELETED" && entry1u.status != "DELETED" {
+                println!("DELETED {}", entry2u.path);
+            } else if entry1u.size != entry2u.size {
+                println!("CHANGED {}", entry1u.path);
+            } else if entry1u.hash != entry2u.hash {
+                println!("CHANGED {}", entry1u.path);
+            } else if entry1u.timestamp != entry2u.timestamp {
+                print!("TIME {}\t", entry1u.path);
+                let d = UNIX_EPOCH + Duration::from_secs(entry1u.timestamp);
                 // Create DateTime from SystemTime
                 let datetime = DateTime::<Local>::from(d);
                 // Formats the combined date and time with the specified format string.
                 let timestamp_str = datetime.format("%Y%m%d%H%M.%S").to_string();
-                println!{"touch -t {} {}/{}",timestamp_str,root2,entry2.unwrap().path};
-            } else if entry1.unwrap().perms != entry2.unwrap().perms {
-                println!("PERMS {}", entry1.unwrap().path);
+                println!{"touch -t {} {}/{}",timestamp_str,root2,entry2u.path};
+            } else if entry1u.perms != entry2u.perms {
+                println!("PERMS {}", entry1u.path);
             }
             //println!("MISSING {}", entry1.unwrap().path);
             entry1 = iter1.next();
             entry2 = iter2.next();
         } else if compare == Ordering::Less {
-            if entry1.unwrap().status != "DELETED" {
-                print!("MISSING {}\t", entry1.unwrap().path);
-                println!("cp {}/{} {}/{}",root1,entry1.unwrap().path,root2,entry1.unwrap().path);
+            if entry1u.status != "DELETED" {
+                print!("MISSING {}\t", entry1u.path);
+                println!("cp {}/{} {}/{}",root1,entry1u.path,root2,entry1u.path);
                 //println!("Less {}", entry1.unwrap().path);
             }
             entry1 = iter1.next();
         } else if compare == Ordering::Greater {
-            if entry2.unwrap().status != "DELETED" {
-                print!("MISSING {}\t", entry2.unwrap().path);
-                println!("cp {}/{} {}/{}",root2,entry2.unwrap().path,root1,entry2.unwrap().path);
+            if entry2u.status != "DELETED" {
+                print!("MISSING {}\t", entry2u.path);
+                println!("cp {}/{} {}/{}",root2,entry2u.path,root1,entry2u.path);
                 //println!("Greater {}", entry2.unwrap().path);
             }
             entry2 = iter2.next();
         }
     }
+
+    println!("Ending");
 }
