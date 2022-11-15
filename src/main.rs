@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::LinkedList;
+use std::env::args;
 use std::ffi::c_int;
 use std::fs;
 use std::fs::File;
@@ -111,8 +112,6 @@ fn scan(root: String, tx:Sender<Entry>) {
 
     fs::create_dir_all(root_full.to_owned() + ".unisync").unwrap();
 
-    let mut file_exists = false;
-    
     let mut reader:BufReader<File>;
     if Path::new(last_path.as_str()).exists() {
         let mut file_done = false;
@@ -166,7 +165,7 @@ fn scan(root: String, tx:Sender<Entry>) {
                     next_entry.status = String::from("MODIFIED");
                     next_entry.hash_path(dir_entry.path());
                 }
-                //print!(".");
+
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
                 let mut line = String::new();
@@ -181,10 +180,6 @@ fn scan(root: String, tx:Sender<Entry>) {
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
             }
-            
-            //println!("Next line is {}", new_entry.to_string());
-            //writeln!(output,"{}",new_entry.to_string());
-            
         }
         while !file_done {
             last_entry.status = String::from("DELETED");
@@ -192,15 +187,15 @@ fn scan(root: String, tx:Sender<Entry>) {
             tx.send(last_entry.clone());
             let mut line = String::new();
             let bytes = reader.read_line(&mut line).unwrap();
-            if bytes == 0 {
-                file_done = true;
-            } else {
+            if bytes != 0 {
                 last_entry = Entry::new(line);
-            }
+            } else {
+                file_done = true;
+            } 
         }
+
         fs::rename(next_path, last_path);
-        //if (next_entry.)
-        //writeln!(output,"{}",next_entry.to_string());
+
     } else {
         let mut output = File::create(next_path.to_owned()).unwrap();
 
@@ -224,18 +219,23 @@ fn scan(root: String, tx:Sender<Entry>) {
 }
 
 fn main() {
-    let root1 = "./test";
-    let root2 = "./test2";
+    let args: Vec<String> = args().collect();
+
+    let mut root1 = String::from(&args[1]);
+    let mut root2 = String::from(&args[2]);
+
+    let root1c = root1.clone();
+    let root2c = root2.clone();
 
     let (tx1, rx1) = mpsc::channel();
     let (tx2, rx2) = mpsc::channel();
 
     thread::spawn(move || {
-        scan(String::from(root1),tx1);
+        scan(root1c,tx1);
     });
 
     thread::spawn(move || {
-        scan(String::from(root2), tx2);
+        scan(root2c, tx2);
     });
     
 
@@ -254,7 +254,7 @@ fn main() {
 
     println!("Starting");
 
-    while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2)   {
+    while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
         let compare = entry1u.path.cmp(&entry2u.path);
         if compare == Ordering::Equal {
             if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
@@ -282,18 +282,36 @@ fn main() {
         } else if compare == Ordering::Less {
             if entry1u.status != "DELETED" {
                 print!("MISSING {}\t", entry1u.path);
-                println!("cp {}/{} {}/{}",root1,entry1u.path,root2,entry1u.path);
+                println!("cp {}/{} {}/{}",root1.to_owned(),entry1u.path,root2.to_owned(),entry1u.path);
                 //println!("Less {}", entry1.unwrap().path);
             }
             entry1 = iter1.next();
         } else if compare == Ordering::Greater {
             if entry2u.status != "DELETED" {
                 print!("MISSING {}\t", entry2u.path);
-                println!("cp {}/{} {}/{}",root2,entry2u.path,root1,entry2u.path);
+                println!("cp {}/{} {}/{}",root2.to_owned(),entry2u.path,root1,entry2u.path);
                 //println!("Greater {}", entry2.unwrap().path);
             }
             entry2 = iter2.next();
         }
+    }
+
+    while let Some(entry1u) = &entry1 {
+        if entry1u.status != "DELETED" {
+            print!("MISSING {}\t", entry1u.path);
+            println!("cp {}/{} {}/{}",root1.to_owned(),entry1u.path,root2.to_owned(),entry1u.path);
+            //println!("Less {}", entry1.unwrap().path);
+        }
+        entry1 = iter1.next();
+    }
+
+    while let Some(entry2u) = &entry2 {
+        if entry2u.status != "DELETED" {
+            print!("MISSING {}\t", entry2u.path);
+            println!("cp {}/{} {}/{}",root2.to_owned(),entry2u.path,root1.to_owned(),entry2u.path);
+            //println!("Greater {}", entry2.unwrap().path);
+        }
+        entry2 = iter2.next();
     }
 
     println!("Ending");
