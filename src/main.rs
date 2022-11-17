@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::env::args;
 use std::fs;
 use std::fs::File;
-use std::io::{Write, BufReader, BufRead};
+use std::io::{Read, Write, BufReader, BufRead, self};
 use std::path::{Path, self, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -12,7 +12,7 @@ use chrono::{Utc, NaiveDateTime, Local};
 use chrono::prelude::DateTime;
 use std::os::unix::fs::PermissionsExt;
 
-use sha256::try_digest;
+use sha2::{Sha256, Digest};
 use walkdir::{WalkDir, DirEntry};
 
 pub struct Entry {
@@ -91,7 +91,15 @@ impl Entry {
 
 impl Entry {
     pub fn hash_path(&mut self, path: &Path) {
-        self.hash = try_digest(path).unwrap();
+	let mut file = File::open(path).unwrap();
+	let mut hasher = Sha256::new();
+        io::copy(&mut file, &mut hasher).unwrap();
+        let hash = hasher.finalize();
+	//return hash.encode_hex::<String>();
+    //return hash;
+    self.hash = hex::encode(hash);
+	//return hash.to_string();
+
     }
 }
 
@@ -129,7 +137,6 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
         let mut line = String::new();
         reader.read_line(&mut line).expect("Should work");
         let mut last_entry = Entry::new(line);
-        //println!("Last line is {}",last_entry.to_string());
 
         let mut output = File::create(next_path.to_owned()).unwrap();
         let mut next_entry;
@@ -138,15 +145,18 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
                 .into_iter()
                 .filter_map(Result::ok)
                 .filter(|e| !e.path().starts_with(root_full.to_owned() + ".unisync/"))
+                .filter(|e| !e.path().starts_with(root_full.to_owned() + "#recycle/"))
+                .filter(|e| !e.path().starts_with(root_full.to_owned() + "@eaDir/"))
                 .filter(|e| !e.file_type().is_dir()) {
 
             //let path = dir_entry.path();
     
             next_entry = Entry::from_dir_entry(dir_entry.to_owned(), root_full.to_owned());
+            writeln!(output,"{}",next_entry.to_string());
             let mut compare = last_entry.path.cmp(&next_entry.path);
             
             while compare == Ordering::Less && !file_done {
-                //println!("Got LESS {} {}",last_entry.path,next_entry.path);
+                println!("Got LESS {} {}",last_entry.path,next_entry.path);
                 last_entry.status = String::from("DELETED");
                 writeln!(output,"{}",last_entry.to_string());
                 tx.send(last_entry.clone());
@@ -160,13 +170,13 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
                 }
             }
             if compare == Ordering::Greater {
-                println!("");
                 println!("Got GREATER {} {}",last_entry.path,next_entry.path);
                 let path = dir_entry.path();
                 next_entry.hash_path(path);
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
             } else if compare == Ordering::Equal {
+                println!("Got EQUAL {} {}",last_entry.path,next_entry.path);
                 if next_entry.timestamp == last_entry.timestamp && next_entry.size == last_entry.size {
                     next_entry.hash = String::from(last_entry.hash.as_str());
                 } else {
@@ -184,12 +194,14 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
                     last_entry = Entry::new(line);
                 }
             } else if file_done {
+		println!("GOT FILE DONE {}", next_entry.path);
                 next_entry.hash_path(dir_entry.path());
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
             }
         }
         while !file_done {
+	    println!("GOT DELETED {}", last_entry.path);
             last_entry.status = String::from("DELETED");
             writeln!(output,"{}",last_entry.to_string());
             tx.send(last_entry.clone());
@@ -206,17 +218,20 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
 
     } else {
         let mut output = File::create(next_path.to_owned()).unwrap();
+	println!("Trying to output first time");
 
         for entry in WalkDir::new(root)
                 .sort_by_key(|a| a.file_name().to_owned())
                 .into_iter()
                 .filter_map(Result::ok)
                 .filter(|e| !e.path().starts_with(root_full.to_owned() + ".unisync/"))
+                .filter(|e| !e.path().starts_with(root_full.to_owned() + "#recycle/"))
+                .filter(|e| !e.path().starts_with(root_full.to_owned() + "@eaDir/"))
                 .filter(|e| !e.file_type().is_dir()) {
     
             let mut next_entry = Entry::from_dir_entry(entry.to_owned(), root_full.to_owned());
             next_entry.hash_path(entry.path());
-            //println!("Next line is {}", new_entry.to_string());
+            println!("Next line is {}", next_entry.to_string());
             writeln!(output,"{}",next_entry.to_string());
             tx.send(next_entry.clone());
         }
