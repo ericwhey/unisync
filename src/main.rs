@@ -1,8 +1,5 @@
-use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::collections::LinkedList;
 use std::env::args;
-use std::ffi::c_int;
 use std::fs;
 use std::fs::File;
 use std::io::{Write, BufReader, BufRead};
@@ -10,6 +7,7 @@ use std::path::{Path, self, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use uuid::Uuid;
 use chrono::{Utc, NaiveDateTime, Local};
 use chrono::prelude::DateTime;
 use std::os::unix::fs::PermissionsExt;
@@ -103,12 +101,19 @@ impl Entry {
     }
 }
 
-fn scan(root: String, tx:Sender<Entry>) {
+fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     //let mut list = LinkedList::new();
     //let root = ".".to_owned();
     let root_full = root.to_owned() + "/";
     let last_path = root_full.to_owned() + ".unisync/last.txt";
-    let next_path: String = root_full.to_owned() + ".unisync/next.txt";
+    let next_path: String;
+
+    let id = Uuid::new_v4();
+    if let Some(tempu) = temp {
+        next_path = tempu + "/" + &id.to_string() + ".txt";
+    } else {
+        next_path = root_full.to_owned() + ".unisync/" + &id.to_string() + ".txt";
+    }
 
     fs::create_dir_all(root_full.to_owned() + ".unisync").unwrap();
 
@@ -219,100 +224,127 @@ fn scan(root: String, tx:Sender<Entry>) {
 }
 
 fn main() {
+    let mut temp = None;
+    let mut root1 = None;
+    let mut root2 = None;
+
     let args: Vec<String> = args().collect();
 
-    let mut root1 = String::from(&args[1]);
-    let mut root2 = String::from(&args[2]);
+    let mut argsIter = args.iter();
 
-    let root1c = root1.clone();
-    let root2c = root2.clone();
+    let mut arg = argsIter.next();
 
-    let (tx1, rx1) = mpsc::channel();
-    let (tx2, rx2) = mpsc::channel();
+    let mut index = 0;
 
-    thread::spawn(move || {
-        scan(root1c,tx1);
-    });
+    while let Some(argu) = arg {
+        if argu == "--temp" {
+            temp = Some(String::from(argsIter.next().unwrap()));
+        } else {
+            if index == 1 {
+                root1 = Some(String::from(argu));
+            } else if index == 2 {
+                root2 = Some(String::from(argu));
+            }
+            index += 1;
+            arg = argsIter.next();
+        }
 
-    thread::spawn(move || {
-        scan(root2c, tx2);
-    });
-    
-
-    /*for entry in list1.iter_mut() {
-        println!("{}",entry.to_string());
     }
-    for entry in list2.iter_mut() {
-        println!("{}",entry.to_string());
-    }*/
+    for arg in args {
+        if arg == "--temp" {
 
-    let mut iter1 = rx1.iter();
-    let mut iter2 = rx2.iter();
-
-    let mut entry1 = iter1.next();
-    let mut entry2 = iter2.next();
-
-    println!("Starting");
-
-    while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
-        let compare = entry1u.path.cmp(&entry2u.path);
-        if compare == Ordering::Equal {
-            if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
-                println!("DELETED {}", entry1u.path);
-            } else if entry2u.status == "DELETED" && entry1u.status != "DELETED" {
-                println!("DELETED {}", entry2u.path);
-            } else if entry1u.size != entry2u.size {
-                println!("CHANGED {}", entry1u.path);
-            } else if entry1u.hash != entry2u.hash {
-                println!("CHANGED {}", entry1u.path);
-            } else if entry1u.timestamp != entry2u.timestamp {
-                print!("TIME {}\t", entry1u.path);
-                let d = UNIX_EPOCH + Duration::from_secs(entry1u.timestamp);
-                // Create DateTime from SystemTime
-                let datetime = DateTime::<Local>::from(d);
-                // Formats the combined date and time with the specified format string.
-                let timestamp_str = datetime.format("%Y%m%d%H%M.%S").to_string();
-                println!{"touch -t {} {}/{}",timestamp_str,root2,entry2u.path};
-            } else if entry1u.perms != entry2u.perms {
-                println!("PERMS {}", entry1u.path);
-            }
-            //println!("MISSING {}", entry1.unwrap().path);
-            entry1 = iter1.next();
-            entry2 = iter2.next();
-        } else if compare == Ordering::Less {
-            if entry1u.status != "DELETED" {
-                print!("MISSING {}\t", entry1u.path);
-                println!("cp {}/{} {}/{}",root1.to_owned(),entry1u.path,root2.to_owned(),entry1u.path);
-                //println!("Less {}", entry1.unwrap().path);
-            }
-            entry1 = iter1.next();
-        } else if compare == Ordering::Greater {
-            if entry2u.status != "DELETED" {
-                print!("MISSING {}\t", entry2u.path);
-                println!("cp {}/{} {}/{}",root2.to_owned(),entry2u.path,root1,entry2u.path);
-                //println!("Greater {}", entry2.unwrap().path);
-            }
-            entry2 = iter2.next();
         }
     }
 
-    while let Some(entry1u) = &entry1 {
-        if entry1u.status != "DELETED" {
-            print!("MISSING {}\t", entry1u.path);
-            println!("cp {}/{} {}/{}",root1.to_owned(),entry1u.path,root2.to_owned(),entry1u.path);
-            //println!("Less {}", entry1.unwrap().path);
-        }
-        entry1 = iter1.next();
-    }
 
-    while let Some(entry2u) = &entry2 {
-        if entry2u.status != "DELETED" {
-            print!("MISSING {}\t", entry2u.path);
-            println!("cp {}/{} {}/{}",root2.to_owned(),entry2u.path,root1.to_owned(),entry2u.path);
-            //println!("Greater {}", entry2.unwrap().path);
-        }
-        entry2 = iter2.next();
-    }
+    if let Some(root1u) = root1 {
+        //let root1c = root1.clone();
+        println!("First volume is {}", root1u);
+        let (tx1, rx1) = mpsc::channel();
+        let temp1c = temp.clone();
+        let root1c = root1u.clone();
+        thread::spawn(move || {
+            scan(root1c,temp1c, tx1);
+        });
 
-    println!("Ending");
+        if let Some(root2u) = root2 {
+            println!("Second volume is {}", root2u);
+            let (tx2, rx2) = mpsc::channel();
+            let temp2c = temp.clone();
+            let root2c = root2u.clone();
+            thread::spawn(move || {
+                scan(root2c, temp2c, tx2);
+            });
+
+            let mut iter1 = rx1.iter();
+            let mut iter2 = rx2.iter();
+
+            let mut entry1 = iter1.next();
+            let mut entry2 = iter2.next();
+
+            println!("Starting");
+
+            while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
+                let compare = entry1u.path.cmp(&entry2u.path);
+                if compare == Ordering::Equal {
+                    if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
+                        println!("DELETED {}", entry1u.path);
+                    } else if entry2u.status == "DELETED" && entry1u.status != "DELETED" {
+                        println!("DELETED {}", entry2u.path);
+                    } else if entry1u.size != entry2u.size {
+                        println!("CHANGED {}", entry1u.path);
+                    } else if entry1u.hash != entry2u.hash {
+                        println!("CHANGED {}", entry1u.path);
+                    } else if entry1u.timestamp != entry2u.timestamp {
+                        print!("TIME {}\t", entry1u.path);
+                        let d = UNIX_EPOCH + Duration::from_secs(entry1u.timestamp);
+                        // Create DateTime from SystemTime
+                        let datetime = DateTime::<Local>::from(d);
+                        // Formats the combined date and time with the specified format string.
+                        let timestamp_str = datetime.format("%Y%m%d%H%M.%S").to_string();
+                        println!{"touch -t {} {}/{}",timestamp_str,root2u.to_owned(),entry2u.path};
+                    } else if entry1u.perms != entry2u.perms {
+                        println!("PERMS {}", entry1u.path);
+                    }
+                    //println!("MISSING {}", entry1.unwrap().path);
+                    entry1 = iter1.next();
+                    entry2 = iter2.next();
+                } else if compare == Ordering::Less {
+                    if entry1u.status != "DELETED" {
+                        print!("MISSING {}\t", entry1u.path);
+                        println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                        //println!("Less {}", entry1.unwrap().path);
+                    }
+                    entry1 = iter1.next();
+                } else if compare == Ordering::Greater {
+                    if entry2u.status != "DELETED" {
+                        print!("MISSING {}\t", entry2u.path);
+                        println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                        //println!("Greater {}", entry2.unwrap().path);
+                    }
+                    entry2 = iter2.next();
+                }
+            }
+
+            while let Some(entry1u) = &entry1 {
+                if entry1u.status != "DELETED" {
+                    print!("MISSING {}\t", entry1u.path);
+                    println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                    //println!("Less {}", entry1.unwrap().path);
+                }
+                entry1 = iter1.next();
+            }
+
+            while let Some(entry2u) = &entry2 {
+                if entry2u.status != "DELETED" {
+                    print!("MISSING {}\t", entry2u.path);
+                    println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                    //println!("Greater {}", entry2.unwrap().path);
+                }
+                entry2 = iter2.next();
+            }
+
+            println!("Ending");
+        }
+    }
 }
