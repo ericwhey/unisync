@@ -104,6 +104,7 @@ impl Entry {
 fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     //let mut list = LinkedList::new();
     //let root = ".".to_owned();
+    println!("Scanning {}", &root);
     let root_full = root.to_owned() + "/";
     let last_path = root_full.to_owned() + ".unisync/last.txt";
     let next_path: String;
@@ -114,6 +115,8 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     } else {
         next_path = root_full.to_owned() + ".unisync/" + &id.to_string() + ".txt";
     }
+    println!("Next path is {}", &next_path);
+    println!("Root path is {}", &root_full);
 
     fs::create_dir_all(root_full.to_owned() + ".unisync").unwrap();
 
@@ -238,22 +241,25 @@ fn main() {
 
     while let Some(argu) = arg {
         if argu == "--temp" {
-            temp = Some(String::from(argsIter.next().unwrap()));
+            let tempArg = argsIter.next();
+            if let Some(temp_argu) = tempArg {
+                temp = Some(String::from(temp_argu));
+            } else {
+                println!("Could not unwrap temp arg");
+            }
+            
         } else {
             if index == 1 {
                 root1 = Some(String::from(argu));
             } else if index == 2 {
                 root2 = Some(String::from(argu));
             }
+            println!("Going through args main loop {}", &index);
             index += 1;
-            arg = argsIter.next();
+            
         }
+        arg = argsIter.next();
 
-    }
-    for arg in args {
-        if arg == "--temp" {
-
-        }
     }
 
 
@@ -263,7 +269,8 @@ fn main() {
         let (tx1, rx1) = mpsc::channel();
         let temp1c = temp.clone();
         let root1c = root1u.clone();
-        thread::spawn(move || {
+        
+        let thread_join_handle = thread::spawn(move || {
             scan(root1c,temp1c, tx1);
         });
 
@@ -345,6 +352,8 @@ fn main() {
             }
 
             println!("Ending");
+        } else {
+            thread_join_handle.join();
         }
     }
 }
