@@ -141,6 +141,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
         let mut output = File::create(next_path.to_owned()).unwrap();
         let mut next_entry;
         for dir_entry in WalkDir::new(root.to_owned())
+                .follow_links(false)        
                 .sort_by_key(|a| a.file_name().to_owned())
                 .into_iter()
                 .filter_map(Result::ok)
@@ -221,6 +222,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
 	println!("Trying to output first time");
 
         for entry in WalkDir::new(root)
+                .follow_links(false)
                 .sort_by_key(|a| a.file_name().to_owned())
                 .into_iter()
                 .filter_map(Result::ok)
