@@ -7,10 +7,12 @@ use std::path::{Path, self, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use std::os::unix::fs::PermissionsExt;
 use uuid::Uuid;
 use chrono::{Utc, NaiveDateTime, Local};
 use chrono::prelude::DateTime;
-use std::os::unix::fs::PermissionsExt;
+
+use log::{debug, error, log_enabled, info, Level};
 
 use sha2::{Sha256, Digest};
 use walkdir::{WalkDir, DirEntry};
@@ -112,7 +114,7 @@ impl Entry {
 fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     //let mut list = LinkedList::new();
     //let root = ".".to_owned();
-    println!("Scanning {}", &root);
+    info!("Scanning {}", &root);
     let root_full = root.to_owned() + "/";
     let last_path = root_full.to_owned() + ".unisync/last.txt";
     let next_path: String;
@@ -123,8 +125,8 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     } else {
         next_path = root_full.to_owned() + ".unisync/" + &id.to_string() + ".txt";
     }
-    println!("Next path is {}", &next_path);
-    println!("Root path is {}", &root_full);
+    info!("Next path is {}", &next_path);
+    info!("Root path is {}", &root_full);
 
     fs::create_dir_all(root_full.to_owned() + ".unisync").unwrap();
 
@@ -157,7 +159,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
             let mut compare = last_entry.path.cmp(&next_entry.path);
             
             while compare == Ordering::Less && !file_done {
-                println!("Got LESS {} {}",last_entry.path,next_entry.path);
+                info!("Got LESS {} {}",last_entry.path,next_entry.path);
                 last_entry.status = String::from("DELETED");
                 writeln!(output,"{}",last_entry.to_string());
                 tx.send(last_entry.clone());
@@ -171,13 +173,13 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
                 }
             }
             if compare == Ordering::Greater {
-                println!("Got GREATER {} {}",last_entry.path,next_entry.path);
+                info!("Got GREATER {} {}",last_entry.path,next_entry.path);
                 let path = dir_entry.path();
                 next_entry.hash_path(path);
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
             } else if compare == Ordering::Equal {
-                println!("Got EQUAL {} {}",last_entry.path,next_entry.path);
+                info!("Got EQUAL {} {}",last_entry.path,next_entry.path);
                 if next_entry.timestamp == last_entry.timestamp && next_entry.size == last_entry.size {
                     next_entry.hash = String::from(last_entry.hash.as_str());
                 } else {
@@ -195,14 +197,14 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
                     last_entry = Entry::new(line);
                 }
             } else if file_done {
-		println!("GOT FILE DONE {}", next_entry.path);
+		        info!("GOT FILE DONE {}", next_entry.path);
                 next_entry.hash_path(dir_entry.path());
                 writeln!(output,"{}",next_entry.to_string());
                 tx.send(next_entry.clone());
             }
         }
         while !file_done {
-	    println!("GOT DELETED {}", last_entry.path);
+	        info!("GOT DELETED {}", last_entry.path);
             last_entry.status = String::from("DELETED");
             writeln!(output,"{}",last_entry.to_string());
             tx.send(last_entry.clone());
@@ -219,7 +221,6 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
 
     } else {
         let mut output = File::create(next_path.to_owned()).unwrap();
-	println!("Trying to output first time");
 
         for entry in WalkDir::new(root)
                 .follow_links(false)
@@ -233,7 +234,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
     
             let mut next_entry = Entry::from_dir_entry(entry.to_owned(), root_full.to_owned());
             next_entry.hash_path(entry.path());
-            println!("Next line is {}", next_entry.to_string());
+            info!("Next line is {}", next_entry.to_string());
             writeln!(output,"{}",next_entry.to_string());
             tx.send(next_entry.clone());
         }
@@ -244,6 +245,9 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
 }
 
 fn main() {
+    env_logger::init();
+
+    let out = true;
     let mut temp = None;
     let mut root1 = None;
     let mut root2 = None;
@@ -262,7 +266,7 @@ fn main() {
             if let Some(temp_argu) = tempArg {
                 temp = Some(String::from(temp_argu));
             } else {
-                println!("Could not unwrap temp arg");
+                error!("Could not unwrap temp arg");
             }
             
         } else {
@@ -271,7 +275,7 @@ fn main() {
             } else if index == 2 {
                 root2 = Some(String::from(argu));
             }
-            println!("Going through args main loop {}", &index);
+            info!("Going through args main loop {}", &index);
             index += 1;
             
         }
@@ -282,7 +286,7 @@ fn main() {
 
     if let Some(root1u) = root1 {
         //let root1c = root1.clone();
-        println!("First volume is {}", root1u);
+        info!("First volume is {}", root1u);
         let (tx1, rx1) = mpsc::channel();
         let temp1c = temp.clone();
         let root1c = root1u.clone();
@@ -292,7 +296,7 @@ fn main() {
         });
 
         if let Some(root2u) = root2 {
-            println!("Second volume is {}", root2u);
+            info!("Second volume is {}", root2u);
             let (tx2, rx2) = mpsc::channel();
             let temp2c = temp.clone();
             let root2c = root2u.clone();
@@ -306,7 +310,7 @@ fn main() {
             let mut entry1 = iter1.next();
             let mut entry2 = iter2.next();
 
-            println!("Starting");
+            info!("Starting");
 
             while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
                 let compare = entry1u.path.cmp(&entry2u.path);
@@ -368,9 +372,15 @@ fn main() {
                 entry2 = iter2.next();
             }
 
-            println!("Ending");
+            info!("Ending");
         } else {
-            thread_join_handle.join();
+            //thread_join_handle.join();
+            for entry in rx1.iter() {
+                if out {
+                    println!("{}", entry.to_string());
+                }
+
+            }
         }
     }
 }
