@@ -153,7 +153,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
             //let path = dir_entry.path();
     
             next_entry = Entry::from_dir_entry(dir_entry.to_owned(), root_full.to_owned());
-            writeln!(output,"{}",next_entry.to_string());
+            //writeln!(output,"{}",next_entry.to_string());
             let mut compare = last_entry.path.cmp(&next_entry.path);
             
             while compare == Ordering::Less && !file_done {
