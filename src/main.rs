@@ -111,7 +111,7 @@ impl Entry {
     }
 }
 
-fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
+fn scan(root: String, temp: &Option<String>, tx:Sender<Entry>) {
     //let mut list = LinkedList::new();
     //let root = ".".to_owned();
     info!("Scanning {}", &root);
@@ -121,7 +121,7 @@ fn scan(root: String, temp: Option<String>, tx:Sender<Entry>) {
 
     let id = Uuid::new_v4();
     if let Some(tempu) = temp {
-        next_path = tempu + "/" + &id.to_string() + ".txt";
+        next_path = String::from(tempu) + "/" + &id.to_string() + ".txt";
     } else {
         next_path = root_full.to_owned() + ".unisync/" + &id.to_string() + ".txt";
     }
@@ -249,6 +249,8 @@ fn main() {
 
     let out = true;
     let mut temp = None;
+    let mut no_perms = false;
+    let mut no_times = false;
     let mut root1 = None;
     let mut root2 = None;
 
@@ -263,12 +265,18 @@ fn main() {
     while let Some(argu) = arg {
         if argu == "--temp" {
             let tempArg = argsIter.next();
-            if let Some(temp_argu) = tempArg {
-                temp = Some(String::from(temp_argu));
-            } else {
-                error!("Could not unwrap temp arg");
+            match tempArg {
+                Some(tempArgU) => {
+                    temp = Some(tempArgU.clone());
+                },
+                None => {
+
+                }
             }
-            
+        } else if argu == "--noperms" {
+            no_perms = true;
+        } else if argu == "--notimes" {
+            no_times = true;
         } else {
             if index == 1 {
                 root1 = Some(String::from(argu));
@@ -289,19 +297,19 @@ fn main() {
         info!("First volume is {}", root1u);
         let (tx1, rx1) = mpsc::channel();
         let temp1c = temp.clone();
-        let root1c = root1u.clone();
         
+        let root1uc = root1u.clone();
         let thread_join_handle = thread::spawn(move || {
-            scan(root1c,temp1c, tx1);
+            scan(root1uc, &temp1c, tx1);
         });
 
         if let Some(root2u) = root2 {
             info!("Second volume is {}", root2u);
             let (tx2, rx2) = mpsc::channel();
             let temp2c = temp.clone();
-            let root2c = root2u.clone();
-            thread::spawn(move || {
-                scan(root2c, temp2c, tx2);
+            let root2uc = root2u.clone();
+            thread::spawn( move || {
+                scan(root2uc, &temp2c, tx2);
             });
 
             let mut iter1 = rx1.iter();
@@ -323,7 +331,7 @@ fn main() {
                         println!("CHANGED {}", entry1u.path);
                     } else if entry1u.hash != entry2u.hash {
                         println!("CHANGED {}", entry1u.path);
-                    } else if entry1u.timestamp != entry2u.timestamp {
+                    } else if !no_times && entry1u.timestamp != entry2u.timestamp {
                         print!("TIME {}\t", entry1u.path);
                         let d = UNIX_EPOCH + Duration::from_secs(entry1u.timestamp);
                         // Create DateTime from SystemTime
@@ -331,7 +339,7 @@ fn main() {
                         // Formats the combined date and time with the specified format string.
                         let timestamp_str = datetime.format("%Y%m%d%H%M.%S").to_string();
                         println!{"touch -t {} {}/{}",timestamp_str,root2u.to_owned(),entry2u.path};
-                    } else if entry1u.perms != entry2u.perms {
+                    } else if !no_perms && entry1u.perms != entry2u.perms {
                         println!("PERMS {}", entry1u.path);
                     }
                     //println!("MISSING {}", entry1.unwrap().path);
