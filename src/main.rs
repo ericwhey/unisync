@@ -323,7 +323,8 @@ fn main() {
             while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
                 let compare = entry1u.path.cmp(&entry2u.path);
                 if compare == Ordering::Equal {
-                    if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
+                    if entry1u.status == "DELETED" && entry2u.status == "DELETED" {
+                    } else if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
                         println!("DELETED {}", entry1u.path);
                     } else if entry2u.status == "DELETED" && entry1u.status != "DELETED" {
                         println!("DELETED {}", entry2u.path);
