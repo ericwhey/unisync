@@ -111,6 +111,89 @@ impl Entry {
     }
 }
 
+fn whatIsMissing(path1: &String, path2: &String, pathMissing: &String) -> Option<String> {
+    //println!("What is missing");
+    let one = Path::new(path1).parent();
+    let two = Path::new(path2).parent();
+    let mut missing = Some(Path::new(pathMissing));
+    //println!("Missing {}",missing.unwrap().to_string_lossy());
+    let mut lastMissing = None;
+    let mut done =false;
+    let mut fail = false;
+    missing =  missing.unwrap().parent();
+    //println!("Missing {}",missing.unwrap().to_string_lossy());
+    lastMissing = None;
+    while !done {
+        //println!("Missing {}",missing.unwrap().to_string_lossy());
+        if missing.is_none() {
+            done = true;
+        } else if one.unwrap().starts_with(missing.unwrap()) || two.unwrap().starts_with(missing.unwrap()) {
+            //println!("Failed");
+            //println!("Missing {}",missing.unwrap().to_string_lossy());
+            //println!("One {}", &one.unwrap().to_string_lossy());
+            //println!("Two {}", &two.unwrap().to_string_lossy());
+            fail = true;
+            done = true;
+        } 
+        
+
+            if !done {
+                lastMissing = missing;
+                missing =  missing.unwrap().parent();
+            }
+        
+    }
+    if let Some(lastMissingU) = lastMissing {
+        //if !fail {
+            //println!("{}", lastMissingU.to_string_lossy());
+        //}
+        return Some(String::from(lastMissingU.to_string_lossy()));
+    }
+    return None;
+}
+
+fn whatIsMissing2(path1: &String, pathMissing: &String) -> Option<String> {
+    //println!("What is missing 2");
+    let one = Path::new(path1).parent();
+    //let two = Path::new(path2).parent();
+    let mut missing = Some(Path::new(pathMissing));
+    //println!("Missing {}",missing.unwrap().to_string_lossy());
+    let mut lastMissing = None;
+    let mut done =false;
+    let mut fail = false;
+    missing =  missing.unwrap().parent();
+    //println!("Missing {}",missing.unwrap().to_string_lossy());
+    lastMissing = None;
+    while !done {
+        //println!("Missing {}",missing.unwrap().to_string_lossy());
+        if missing.is_none() {
+            done = true;
+        } else if one.unwrap().starts_with(missing.unwrap())  {
+            //println!("Failed");
+            //println!("Missing {}",missing.unwrap().to_string_lossy());
+            //println!("One {}", &one.unwrap().to_string_lossy());
+            //println!("Two {}", &two.unwrap().to_string_lossy());
+            fail = true;
+            done = true;
+        } 
+        
+
+            if !done {
+                lastMissing = missing;
+                missing =  missing.unwrap().parent();
+            }
+        
+    }
+    if let Some(lastMissingU) = lastMissing {
+        //if !fail {
+            //println!("{}", lastMissingU.to_string_lossy());
+            return Some(String::from(lastMissingU.to_string_lossy()));
+        //}
+    }
+
+    return None;
+}
+
 fn scan(root: String, temp: &Option<String>, tx:Sender<Entry>) {
     //let mut list = LinkedList::new();
     //let root = ".".to_owned();
@@ -315,12 +398,20 @@ fn main() {
             let mut iter1 = rx1.iter();
             let mut iter2 = rx2.iter();
 
+            let mut previousPath1: Option<String> = None;
+            let mut previousPath2: Option<String> = None;
+
             let mut entry1 = iter1.next();
             let mut entry2 = iter2.next();
 
+            let mut last_dir = None;
+
             info!("Starting");
 
+
             while let (Some(entry1u),Some(entry2u)) = (&entry1, &entry2) {
+
+    
                 let compare = entry1u.path.cmp(&entry2u.path);
                 if compare == Ordering::Equal {
                     if entry1u.status == "DELETED" && entry2u.status == "DELETED" {
@@ -344,29 +435,101 @@ fn main() {
                         println!("PERMS {}", entry1u.path);
                     }
                     //println!("MISSING {}", entry1.unwrap().path);
+                    previousPath1 = Some(entry1.unwrap().path.clone());
+                    previousPath2 = Some(entry2.unwrap().path.clone());
                     entry1 = iter1.next();
                     entry2 = iter2.next();
                 } else if compare == Ordering::Less {
                     if entry1u.status != "DELETED" {
-                        print!("MISSING {}\t", entry1u.path);
-                        println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                        if let Some(previousPath2u) = &previousPath2 {
+                            match whatIsMissing(previousPath2u, &entry2u.path, &entry1u.path) {
+                                Some(dir_u) => {
+                                    if let Some(last_dir_u) = last_dir {
+                                        if dir_u != last_dir_u {
+                                            print!("DIR {}\t", dir_u);
+                                            println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                        }
+                                    } else {
+                                        print!("DIR {}\t", dir_u);
+                                        println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                    }
+                                    last_dir = Some(String::from(dir_u));
+                                }
+                                None => {
+                                    print!("MISSING {}\t", entry1u.path);
+                                    println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                                }
+                            }
+                            //println!("Previous numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&previousPath2u)));
+                        }
+                        //println!("Next numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&entry2u.path.clone())));
+                        
+                        //print!("MISSING {}\t", entry1u.path);
+                        //println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
                         //println!("Less {}", entry1.unwrap().path);
                     }
+                    previousPath1 = Some(entry1.unwrap().path.clone());
                     entry1 = iter1.next();
                 } else if compare == Ordering::Greater {
                     if entry2u.status != "DELETED" {
-                        print!("MISSING {}\t", entry2u.path);
-                        println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                        if let Some(previousPath1u) = &previousPath1 {
+                            match whatIsMissing(previousPath1u, &entry1u.path, &entry2u.path) {
+                                Some(dir_u) => {
+                                    if let Some(last_dir_u) = last_dir {
+                                        if dir_u != last_dir_u {
+                                            print!("DIR {}\t", dir_u);
+                                            println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                        }
+                                    } else {
+                                        print!("DIR {}\t", dir_u);
+                                        println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                    }
+                                    last_dir = Some(String::from(dir_u));
+                                }
+                                None => {
+                                    print!("MISSING {}\t", entry2u.path);
+                                    println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                                }
+                            }
+                        }
+                        
+                        
                         //println!("Greater {}", entry2.unwrap().path);
                     }
+                    previousPath2 = Some(entry2.unwrap().path.clone());
                     entry2 = iter2.next();
                 }
+
             }
 
             while let Some(entry1u) = &entry1 {
                 if entry1u.status != "DELETED" {
-                    print!("MISSING {}\t", entry1u.path);
-                    println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                    if let Some(previousPath2u) = &previousPath2 {
+                        match whatIsMissing2(previousPath2u, &entry1u.path) {
+                            Some(dir_u) => {
+                                if let Some(last_dir_u) = last_dir {
+                                    if dir_u != last_dir_u {
+                                        print!("DIR {}\t", dir_u);
+                                    }
+                                } else {
+                                    print!("DIR {}\t", dir_u);
+                                }
+                                last_dir = Some(String::from(dir_u));
+                            }
+                            None => {
+                                print!("MISSING {}\t", entry1u.path);
+                                println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                            }
+                        }
+                        
+
+                        
+                        //println!("Previous numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&previousPath2u)));
+                    } else {
+                        println!("OOPs");
+                    }
+                    //print!("MISSING {}\t", entry1u.path);
+                    
                     //println!("Less {}", entry1.unwrap().path);
                 }
                 entry1 = iter1.next();
@@ -374,8 +537,28 @@ fn main() {
 
             while let Some(entry2u) = &entry2 {
                 if entry2u.status != "DELETED" {
-                    print!("MISSING {}\t", entry2u.path);
-                    println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                    if let Some(previousPath1u) = &previousPath1 {
+                        match whatIsMissing2(previousPath1u, &entry2u.path) {
+                            Some(dir_u) => {
+                                if let Some(last_dir_u) = last_dir {
+                                    if dir_u != last_dir_u {
+                                        print!("DIR {}\t", dir_u);
+                                    }
+                                } else {
+                                    print!("DIR {}\t", dir_u);
+                                }
+                                last_dir = Some(String::from(dir_u));
+                            }
+                            None => {
+                                print!("MISSING {}\t",entry2u.path);
+                                println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                            }
+                        }
+                    } else {
+                        println!("OOPs");
+                    }
+                    //print!("MISSING {}\t", entry2u.path);
+                    
                     //println!("Greater {}", entry2.unwrap().path);
                 }
                 entry2 = iter2.next();
