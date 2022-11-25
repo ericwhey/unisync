@@ -413,11 +413,11 @@ fn main() {
                                 Some(dir_u) => {
                                     if let Some(last_dir_u) = last_dir {
                                         if dir_u != last_dir_u {
-                                            print!("DIR {}\t", dir_u);
+                                            print!("MISSING {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                         }
                                     } else {
-                                        print!("DIR {}\t", dir_u);
+                                        print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                     }
                                     last_dir = Some(String::from(dir_u));
