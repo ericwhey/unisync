@@ -360,8 +360,11 @@ fn main() {
             let mut iter1 = rx1.iter();
             let mut iter2 = rx2.iter();
 
-            let mut previousPath1: Option<String> = None;
-            let mut previousPath2: Option<String> = None;
+            let mut previousPath1: Option<&String> = None;
+            let mut previousPath2: Option<&String> = None;
+
+            let mut entry1uPath: String;
+            let mut entry2uPath: String;
 
             let mut entry1 = iter1.next();
             let mut entry2 = iter2.next();
@@ -397,51 +400,31 @@ fn main() {
                         println!("PERMS {}", entry1u.path);
                     }
                     //println!("MISSING {}", entry1.unwrap().path);
-                    previousPath1 = Some(entry1.unwrap().path.clone());
-                    previousPath2 = Some(entry2.unwrap().path.clone());
+                    entry1uPath = entry1u.path.to_string();
+                    entry2uPath = entry2u.path.to_string();
+                    previousPath1 = Some(&entry1uPath);
+                    previousPath2 = Some(&entry2uPath);
                     entry1 = iter1.next();
                     entry2 = iter2.next();
                 } else if compare == Ordering::Less {
                     if entry1u.status != "DELETED" {
                         if !no_compress {
-                            if let Some(previousPath2u) = &previousPath2 {
-                                match compress_dirs(Some(previousPath2u), Some(&entry2u.path), &entry1u.path) {
-                                    Some(dir_u) => {
-                                        if let Some(last_dir_u) = last_dir {
-                                            if dir_u != last_dir_u {
-                                                print!("DIR {}\t", dir_u);
-                                                println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
-                                            }
-                                        } else {
+                            match compress_dirs(previousPath2, Some(&entry2u.path), &entry1u.path) {
+                                Some(dir_u) => {
+                                    if let Some(last_dir_u) = last_dir {
+                                        if dir_u != last_dir_u {
                                             print!("DIR {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                         }
-                                        last_dir = Some(String::from(dir_u));
+                                    } else {
+                                        print!("DIR {}\t", dir_u);
+                                        println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                     }
-                                    None => {
-                                        print!("MISSING {}\t", entry1u.path);
-                                        println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
-                                    }
+                                    last_dir = Some(String::from(dir_u));
                                 }
-                                //println!("Previous numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&previousPath2u)));
-                            } else {
-                                match compress_dirs(None, Some(&entry2u.path), &entry1u.path) {
-                                    Some(dir_u) => {
-                                        if let Some(last_dir_u) = last_dir {
-                                            if dir_u != last_dir_u {
-                                                print!("DIR {}\t", dir_u);
-                                                println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
-                                            }
-                                        } else {
-                                            print!("DIR {}\t", dir_u);
-                                            println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
-                                        }
-                                        last_dir = Some(String::from(dir_u));
-                                    }
-                                    None => {
-                                        print!("MISSING {}\t", entry1u.path);
-                                        println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
-                                    }
+                                None => {
+                                    print!("MISSING {}\t", entry1u.path);
+                                    println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
                                 }
                             }
                         } else {
@@ -454,59 +437,38 @@ fn main() {
                         //println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
                         //println!("Less {}", entry1.unwrap().path);
                     }
-                    previousPath1 = Some(entry1.unwrap().path.clone());
+                    entry1uPath = entry1u.path.to_string();
+                    previousPath1 = Some(&entry1uPath);
                     entry1 = iter1.next();
                 } else if compare == Ordering::Greater {
                     if entry2u.status != "DELETED" {
                         if !no_compress {
-                            if let Some(previousPath1u) = &previousPath1 {
-                                match compress_dirs(Some(previousPath1u), Some(&entry1u.path), &entry2u.path) {
-                                    Some(dir_u) => {
-                                        if let Some(last_dir_u) = last_dir {
-                                            if dir_u != last_dir_u {
-                                                print!("MISSING {}\t", dir_u);
-                                                println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
-                                            }
-                                        } else {
+                            match compress_dirs(previousPath1, Some(&entry1u.path), &entry2u.path) {
+                                Some(dir_u) => {
+                                    if let Some(last_dir_u) = last_dir {
+                                        if dir_u != last_dir_u {
                                             print!("MISSING {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
                                         }
-                                        last_dir = Some(String::from(dir_u));
+                                    } else {
+                                        print!("MISSING {}\t", dir_u);
+                                        println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
                                     }
-                                    None => {
-                                        print!("MISSING {}\t", entry2u.path);
-                                        println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
-                                    }
+                                    last_dir = Some(String::from(dir_u));
                                 }
-                            } else {
-                                match compress_dirs(None, Some(&entry1u.path), &entry2u.path) {
-                                    Some(dir_u) => {
-                                        if let Some(last_dir_u) = last_dir {
-                                            if dir_u != last_dir_u {
-                                                print!("MISSING {}\t", dir_u);
-                                                println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
-                                            }
-                                        } else {
-                                            print!("MISSING {}\t", dir_u);
-                                            println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
-                                        }
-                                        last_dir = Some(String::from(dir_u));
-                                    }
-                                    None => {
-                                        print!("MISSING {}\t", entry2u.path);
-                                        println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
-                                    }
+                                None => {
+                                    print!("MISSING {}\t", entry2u.path);
+                                    println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
                                 }
                             }
                         } else {
                             print!("MISSING {}\t", entry2u.path);
                             println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
                         }
-                        
-                        
                         //println!("Greater {}", entry2.unwrap().path);
                     }
-                    previousPath2 = Some(entry2.unwrap().path.clone());
+                    entry2uPath = entry2u.path.to_string();
+                    previousPath2 = Some(&entry2uPath);
                     entry2 = iter2.next();
                 }
 
@@ -515,31 +477,23 @@ fn main() {
             while let Some(entry1u) = &entry1 {
                 if entry1u.status != "DELETED" {
                     if !no_compress {
-                        if let Some(previousPath2u) = &previousPath2 {
-                            match compress_dirs(Some(previousPath2u), None, &entry1u.path) {
-                                Some(dir_u) => {
-                                    if let Some(last_dir_u) = last_dir {
-                                        if dir_u != last_dir_u {
-                                            print!("MISSING {}\t", dir_u);
-                                            println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
-                                        }
-                                    } else {
+                        match compress_dirs(previousPath2, None, &entry1u.path) {
+                            Some(dir_u) => {
+                                if let Some(last_dir_u) = last_dir {
+                                    if dir_u != last_dir_u {
                                         print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                     }
-                                    last_dir = Some(String::from(dir_u));
+                                } else {
+                                    print!("MISSING {}\t", dir_u);
+                                    println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
                                 }
-                                None => {
-                                    print!("MISSING {}\t", entry1u.path);
-                                    println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
-                                }
+                                last_dir = Some(String::from(dir_u));
                             }
-                            
-
-                            
-                            //println!("Previous numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&previousPath2u)));
-                        } else {
-                            println!("OOPs");
+                            None => {
+                                print!("MISSING {}\t", entry1u.path);
+                                println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                            }
                         }
                     } else {
                         print!("MISSING {}\t", entry1u.path);
@@ -549,14 +503,16 @@ fn main() {
                     
                     //println!("Less {}", entry1.unwrap().path);
                 }
+                entry1uPath = entry1u.path.to_string();
+                previousPath1 = Some(&entry1uPath);;
                 entry1 = iter1.next();
             }
 
             while let Some(entry2u) = &entry2 {
                 if entry2u.status != "DELETED" {
                     if !no_compress {
-                        if let Some(previousPath1u) = &previousPath1 {
-                            match compress_dirs(Some(previousPath1u), None, &entry2u.path) {
+                        //if let Some(previousPath1u) = &previousPath1 {
+                            match compress_dirs(previousPath1, None, &entry2u.path) {
                                 Some(dir_u) => {
                                     if let Some(last_dir_u) = last_dir {
                                         if dir_u != last_dir_u {
@@ -574,9 +530,9 @@ fn main() {
                                     println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
                                 }
                             }
-                        } else {
+                        /* } else {
                             println!("OOPs");
-                        }
+                        }*/
                     } else {
                         print!("MISSING {}\t",entry2u.path);
                         println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
@@ -585,6 +541,8 @@ fn main() {
                     
                     //println!("Greater {}", entry2.unwrap().path);
                 }
+                entry2uPath = entry2u.path.to_string();
+                previousPath2 = Some(&entry2uPath);
                 entry2 = iter2.next();
             }
 
