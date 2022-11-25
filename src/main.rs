@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::LinkedList;
 use std::env::args;
 use std::fs;
 use std::fs::File;
@@ -8,9 +9,11 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use std::os::unix::fs::PermissionsExt;
+use fs_extra::{dir,file};
 use uuid::Uuid;
 use chrono::Local;
 use chrono::prelude::DateTime;
+use console::{Term, Key};
 
 use log::{debug, error, log_enabled, info, Level};
 
@@ -109,6 +112,15 @@ impl Entry {
     pub fn to_string(&self) -> String {
         return String::from(format!("{}\t{}\t{}\t{}\t{}\t{}", self.status, self.timestamp, self.size, self.perms, self.hash, self.path));
     }
+}
+
+pub struct Difference {
+    pub path: String,
+    pub status: String,
+    pub path_type: String,
+    pub side: i32,
+    pub path1: String,
+    pub path2: String
 }
 
 fn compress_dirs(path1: Option<&String>, path2: Option<&String>, pathMissing: &String) -> Option<String> {
@@ -371,6 +383,8 @@ fn main() {
 
             let mut last_dir = None;
 
+            let mut differences: LinkedList<Difference> = LinkedList::new();
+
             info!("Starting");
 
 
@@ -382,12 +396,16 @@ fn main() {
                     if entry1u.status == "DELETED" && entry2u.status == "DELETED" {
                     } else if entry1u.status == "DELETED" && entry2u.status != "DELETED" {
                         println!("DELETED {}", entry1u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("DELETED"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     } else if entry2u.status == "DELETED" && entry1u.status != "DELETED" {
                         println!("DELETED {}", entry2u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("DELETED"), side: 2, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     } else if entry1u.size != entry2u.size {
                         println!("CHANGED {}", entry1u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("CHANGED"), side: 0, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     } else if entry1u.hash != entry2u.hash {
                         println!("CHANGED {}", entry1u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("CHANGED"), side: 0, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     } else if !no_times && entry1u.timestamp != entry2u.timestamp {
                         print!("TIME {}\t", entry1u.path);
                         let d = UNIX_EPOCH + Duration::from_secs(entry1u.timestamp);
@@ -396,8 +414,10 @@ fn main() {
                         // Formats the combined date and time with the specified format string.
                         let timestamp_str = datetime.format("%Y%m%d%H%M.%S").to_string();
                         println!{"touch -t {} {}/{}",timestamp_str,root2u.to_owned(),entry2u.path};
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("TIME"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     } else if !no_perms && entry1u.perms != entry2u.perms {
                         println!("PERMS {}", entry1u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("TIME"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     }
                     //println!("MISSING {}", entry1.unwrap().path);
                     entry1uPath = entry1u.path.to_string();
@@ -415,21 +435,25 @@ fn main() {
                                         if dir_u != last_dir_u {
                                             print!("MISSING {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                            differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                         }
                                     } else {
                                         print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                        differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                     }
                                     last_dir = Some(String::from(dir_u));
                                 }
                                 None => {
                                     print!("MISSING {}\t", entry1u.path);
                                     println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                                    differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry1u.path.as_str()  });
                                 }
                             }
                         } else {
                             print!("MISSING {}\t", entry1u.path);
                             println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                            differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry1u.path.as_str()  });
                         }
                         //println!("Next numAncestors {:?}",numAncestors(Path::new(&entry1u.path), Path::new(&entry2u.path.clone())));
                         
@@ -449,21 +473,25 @@ fn main() {
                                         if dir_u != last_dir_u {
                                             print!("MISSING {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                            differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                         }
                                     } else {
                                         print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                        differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                     }
                                     last_dir = Some(String::from(dir_u));
                                 }
                                 None => {
                                     print!("MISSING {}\t", entry2u.path);
                                     println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                                    differences.push_back(Difference {path:entry2u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + entry2u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                                 }
                             }
                         } else {
                             print!("MISSING {}\t", entry2u.path);
                             println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                            differences.push_back(Difference {path:entry2u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + entry2u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                         }
                         //println!("Greater {}", entry2.unwrap().path);
                     }
@@ -483,21 +511,25 @@ fn main() {
                                     if dir_u != last_dir_u {
                                         print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                        differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                     }
                                 } else {
                                     print!("MISSING {}\t", dir_u);
                                     println!("cp -R {}/{} {}/{}",root1u.to_owned(),dir_u,root2u.to_owned(),dir_u);
+                                    differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                 }
                                 last_dir = Some(String::from(dir_u));
                             }
                             None => {
                                 print!("MISSING {}\t", entry1u.path);
                                 println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                                differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry1u.path.as_str()  });
                             }
                         }
                     } else {
                         print!("MISSING {}\t", entry1u.path);
                         println!("cp {}/{} {}/{}",root1u.to_owned(),entry1u.path,root2u.to_owned(),entry1u.path);
+                        differences.push_back(Difference {path:entry1u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 1, path1: root1u.to_owned() + "/" + entry1u.path.as_str(), path2: root2u.to_owned() + "/" + entry1u.path.as_str()  });
                     }
                     //print!("MISSING {}\t", entry1u.path);
                     
@@ -518,16 +550,19 @@ fn main() {
                                         if dir_u != last_dir_u {
                                             print!("MISSING {}\t", dir_u);
                                             println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                            differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                         }
                                     } else {
                                         print!("MISSING {}\t", dir_u);
                                         println!("cp -R {}/{} {}/{}",root2u.to_owned(),dir_u,root1u.to_owned(),dir_u);
+                                        differences.push_back(Difference {path:String::from(&dir_u), path_type: String::from("DIR"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + String::from(&dir_u).as_str(), path2: root2u.to_owned() + "/" + String::from(&dir_u).as_str()  });
                                     }
                                     last_dir = Some(String::from(dir_u));
                                 }
                                 None => {
                                     print!("MISSING {}\t",entry2u.path);
                                     println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                                    differences.push_back(Difference {path:entry2u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + entry2u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                                 }
                             }
                         /* } else {
@@ -536,17 +571,82 @@ fn main() {
                     } else {
                         print!("MISSING {}\t",entry2u.path);
                         println!("cp {}/{} {}/{}",root2u.to_owned(),entry2u.path,root1u.to_owned(),entry2u.path);
+                        differences.push_back(Difference {path:entry2u.path.to_owned(), path_type: String::from("FILE"), status: String::from("MISSING"), side: 2, path1: root1u.to_owned() + "/" + entry2u.path.as_str(), path2: root2u.to_owned() + "/" + entry2u.path.as_str()  });
                     }
                     //print!("MISSING {}\t", entry2u.path);
                     
                     //println!("Greater {}", entry2.unwrap().path);
                 }
-                entry2uPath = entry2u.path.to_string();
-                previousPath2 = Some(&entry2uPath);
+                //entry2uPath = entry2u.path.to_string();
+                //previousPath2 = Some(&entry2uPath);
                 entry2 = iter2.next();
             }
 
             info!("Ending");
+
+            let mut iter = differences.iter();
+
+            let term = Term::stdout();
+
+            for difference in iter {
+                println!("Difference {} {} {} {}", difference.status, difference.path, difference.path1, difference.path2);
+                
+                let key_result = term.read_key();
+                match key_result {
+                    Ok(key) => {
+                        if key == Key::Enter {
+                            println!("CR pressed");
+                            if difference.status == "MISSING" {
+                                if difference.path_type == "DIR" {
+                                    println!("MISSING DIR {}", difference.side);
+                                    if difference.side == 1 {
+                                        let options = dir::CopyOptions::new(); //Initialize default values for CopyOptions
+                                        let path2 = Path::new(&difference.path2).parent();
+                                        let copy_result = dir::copy(&difference.path1, path2.unwrap(), &options);
+                                        match copy_result {
+                                            Ok(result) => {},
+                                            Err(error) => println!("Problem opening the dir: {:?}", error),
+                                        };
+                                    } else if difference.side == 2 {
+                                        let options = dir::CopyOptions::new(); //Initialize default values for CopyOptions
+                                        let path1 = Path::new(&difference.path1).parent();
+                                        let copy_result = dir::copy(&difference.path2, path1.unwrap(), &options);
+                                        match copy_result {
+                                            Ok(result) => {},
+                                            Err(error) => println!("Problem opening the dir: {:?}", error),
+                                        };
+                                    }
+                                } else if difference.path_type == "FILE" {
+                                    println!("MISSING FILE {}", difference.side);
+                                    if difference.side == 1 {
+                                        let options = file::CopyOptions::new(); //Initialize default values for CopyOptions
+                                        let path2 = Path::new(&difference.path2).parent();
+                                        let copy_result = file::copy(&difference.path1, &difference.path2, &options);
+                                        match copy_result {
+                                            Ok(result) => {},
+                                            Err(error) => println!("Problem opening the file: {:?}", error),
+                                        };
+                                    } else if difference.side == 2 {
+                                        let options = file::CopyOptions::new(); //Initialize default values for CopyOptions
+                                        let path1 = Path::new(&difference.path1).parent();
+                                        let copy_result = file::copy(&difference.path2, &difference.path1, &options);
+                                        match copy_result {
+                                            Ok(result) => {},
+                                            Err(error) => println!("Problem opening the file: {:?}", error),
+                                        };
+                                    }
+                                }
+                            }
+                        } else if key == Key::Char(char::from_u32(65).unwrap()) {
+                            println!("A pressed");
+                        } else if key == Key::Char(char::from('/')) {
+                            println!("Skipped");
+                        }
+                    }
+                    Error => {}
+                }
+                
+            }
         } else {
             //thread_join_handle.join();
             for entry in rx1.iter() {
