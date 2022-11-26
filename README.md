@@ -8,7 +8,9 @@ It's use case is for interactive comparison and synchronization of large file co
 
 *SyncThing* or similar tools tend to copy files over old files without asking which would be bad if your files were suddenly encrypted by ransomware.
 
-*rsync* is not particularly bidirectional takes some mental gymnastics that some people wouldn't 
+*rsync* is not particularly bidirectional takes some mental gymnastics that some people wouldn't grasp fully for what should be a lowkey process.
+
+## Details
 
 unisync works in three phases.
 
@@ -30,7 +32,7 @@ The second phase is comparison which compares the registry of two repositories a
 
 ### Phase 3 - Synchronization
 
-An interactive process of dealing with differences in the two repositories.  For each difference a keypress indicates what will action will be performed:
+An interactive process of dealing with differences in the two repositories.  For each difference a keypress indicates what action will be performed:
 
 *'/'* skips the difference
 
@@ -47,6 +49,8 @@ Much credit goes to unison for filling an important need.  However the use of no
 This tool is still under development and is still in alpha but will be ready for beta soon.  Suggestions and changes are welcome as the development of this tool has so far been for learning Rust and to specifically backup a media collection.  Additional ideas for functionality and help cleaning up code are specifically requested.
 
 ## Build
+
+First make sure you have a Rust build environment available.
 
 ```sh
 git clone https://github.com/ericwhey/unisync.git
